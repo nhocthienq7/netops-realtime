@@ -14,9 +14,11 @@ from .security import hash_password, verify_password, make_token, current_user
 Base.metadata.create_all(bind=engine)
 app = FastAPI(title="NetOps Realtime", version="1.0.0", description="Multi-tenant network monitoring API")
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://netops-realtime.vercel.app",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:5173",
@@ -26,6 +28,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
