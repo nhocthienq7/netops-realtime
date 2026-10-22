@@ -67,8 +67,12 @@ def main():
                 if not device.get("ping_enabled", True):
                     continue
 
-                address = device.get("address")
-                device_id = device.get("id")
+                address = "8.8.8.8"
+device_id = device.get("id")
+
+# Chi giam sat router My Home
+if device.get("site") != "My Home":
+    continue
 
                 if not address or not device_id:
                     continue
