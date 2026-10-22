@@ -55,6 +55,11 @@ class DeviceIn(BaseModel):
     snmp_port: int = Field(default=161, ge=1, le=65535)
     snmp_version: str = "2c"
     snmp_community: str = "public"
+class MonitoringReportIn(BaseModel):
+    device_id: int
+    status: str
+    latency_ms: float | None = None
+    error: str | None = None
 
 def device_json(d):
     return {"id":d.id,"site_id":d.site_id,"site":d.site.name if d.site else "",
@@ -201,3 +206,64 @@ def dashboard(db:Session=Depends(get_db), user:User=Depends(current_user)):
             "unknown":sum(d.status=="unknown" for d in ds),"warning":sum(d.status=="warning" for d in ds),
             "sites":db.query(Site).filter_by(organization_id=user.organization_id).count(),
             "checked_at":datetime.now(timezone.utc)}
+@app.post("/api/monitoring/report")
+def report_monitoring(
+    body: MonitoringReportIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    if body.status not in ("online", "offline"):
+        raise HTTPException(
+            status_code=400,
+            detail="Trạng thái chỉ được là online hoặc offline",
+        )
+
+    device = owned_device(db, user, body.device_id)
+
+    if not device.ping_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Thiết bị đang tắt Ping monitoring",
+        )
+
+    now = datetime.now(timezone.utc)
+    old_status = device.status or "unknown"
+
+    device.status = body.status
+    device.latency_ms = (
+        max(0, body.latency_ms)
+        if body.status == "online" and body.latency_ms is not None
+        else None
+    )
+    device.last_checked = now
+    device.last_error = (
+        (body.error or "Không nhận được phản hồi ping")[:500]
+        if body.status == "offline"
+        else None
+    )
+
+    if body.status == "online":
+        device.last_seen = now
+
+    if old_status != body.status:
+        event = Event(
+            organization_id=user.organization_id,
+            device_id=device.id,
+            device_name=device.name,
+            level="info" if body.status == "online" else "warning",
+            message=(
+                f"Thiết bị chuyển trạng thái: {old_status} → {body.status}"
+            ),
+        )
+        db.add(event)
+
+    db.commit()
+    db.refresh(device)
+
+    return {
+        "ok": True,
+        "device_id": device.id,
+        "status": device.status,
+        "latency_ms": device.latency_ms,
+        "last_checked": device.last_checked,
+    }
