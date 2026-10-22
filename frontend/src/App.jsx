@@ -489,12 +489,12 @@ const siteDeviceGroups = [
               <span><Network size={17} /> Quản lý thiết bị đa site</span>
             </div>
           </div>
-          <small className="auth-footnote">NETOPS · NETWORK OPERATIONS CENTER</small>
+         <small className="auth-footnote">CHITHIEN · NETWORK OPERATIONS CENTER</small>
         </div>
         <form className="auth-card" onSubmit={submitAuth}>
           <div className="auth-card-icon"><LockKeyhole size={22} /></div>
           <h2>{authMode === "login" ? "Đăng nhập hệ thống" : "Tạo tổ chức mới"}</h2>
-          <p>{authMode === "login" ? "Đăng nhập để quản lý hạ tầng mạng của mày." : "Tạo tài khoản quản trị NetOps."}</p>
+          <p>{authMode === "login" ? "Đăng nhập để quản lý hạ tầng mạng của mày." : "Tạo tài khoản quản trị viên."}</p>
           {authMode === "register" && (
             <label>Tên tổ chức
               <input required value={auth.organization} onChange={e => setAuth({ ...auth, organization: e.target.value })} placeholder="Tên công ty" />
@@ -525,7 +525,7 @@ const siteDeviceGroups = [
       <aside className={`sidebar ${sidebarOpen ? "" : "collapsed"}`}>
         <div className="brand">
           <div className="brand-mark"><Activity size={22} /></div>
-          {sidebarOpen && <div className="brand-text"><b>NetOps</b><small>NETWORK MONITOR</small></div>}
+          {sidebarOpen && <div className="brand-text"><b>ChiThien</b><small>NETWORK MONITOR</small></div>}
         </div>
 
         {sidebarOpen && <div className="nav-section-title">WORKSPACE</div>}
@@ -586,7 +586,7 @@ const siteDeviceGroups = [
               <p>
                 {page === "Tổng quan"
                   ? "Theo dõi sức khỏe hạ tầng và trạng thái các site theo thời gian thực."
-                  : `Quản lý ${page.toLowerCase()} trong hệ thống NetOps.`}
+                  : `Quản lý ${page.toLowerCase()} trong hệ thống ChiThien.`}
               </p>
             </div>
             <div className="heading-actions">
@@ -999,7 +999,7 @@ const siteDeviceGroups = [
             </div>
           )}
 
-          <footer className="app-footer"><span><Activity size={15} /> NETOPS NETWORK MONITOR</span><span>Giám sát hạ tầng · Dữ liệu từ backend</span></footer>
+          <footer className="app-footer"><span><Activity size={15} /> CHITHIEN NETWORK MONITOR</span><span>Giám sát hạ tầng · Dữ liệu từ backend</span></footer>
         </div>
       </main>
 
