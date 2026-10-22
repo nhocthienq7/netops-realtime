@@ -478,7 +478,7 @@ const siteDeviceGroups = [
     return (
       <div className="auth-screen">
         <div className="auth-decoration">
-          <div className="auth-brand"><Activity size={26} /> NetOps <span>NETWORK MONITOR</span></div>
+          <div className="auth-brand"><Activity size={26} /> ChiThien <span>NETWORK MONITOR</span></div>
           <div className="auth-hero">
             <span className="eyebrow">INFRASTRUCTURE OBSERVABILITY</span>
             <h1>Toàn bộ hạ tầng mạng.<br /><span>Một nơi quản lý.</span></h1>
