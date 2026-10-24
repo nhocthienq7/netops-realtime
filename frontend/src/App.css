@@ -318,3 +318,67 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   .demo-notice { align-items: flex-start; }
   .demo-notice button { display: none; }
 }
+/* FIX: bỏ khoảng trống hai bên, tận dụng toàn bộ màn hình */
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.app-shell,
+.app-container,
+.app-layout {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+}
+
+.main-content,
+.app-main,
+.content-area {
+  width: 100%;
+  max-width: none !important;
+  min-width: 0;
+  margin-left: 0;
+}
+
+/* Nội dung bên trong không bị bó hẹp */
+.page-content,
+.dashboard-content,
+.page-container {
+  width: 100%;
+  max-width: none !important;
+  min-width: 0;
+}
+
+/* Bố cục co giãn theo màn hình */
+@media (min-width: 1200px) {
+  .dashboard-grid,
+  .stats-grid,
+  .content-grid {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .main-content,
+  .app-main,
+  .content-area {
+    min-width: 0;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
