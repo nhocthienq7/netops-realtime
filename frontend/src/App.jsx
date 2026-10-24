@@ -1,1177 +1,521 @@
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  Activity, AlertTriangle, Bell, Building2, Cable, Check,
-  CheckCircle2, ChevronRight, CircleHelp, Clock3, Cpu,
-  Database, Download, Eye, Filter, Globe, HardDrive,
-  LayoutDashboard, LoaderCircle, LockKeyhole, LogOut, Menu,
-  Monitor, Network, Plus, RefreshCw, Router, Search, Server,
-  Settings, ShieldCheck, Trash2, Wifi, X, XCircle, Pencil,
-  ArrowDownUp, Zap
+  Activity, AlertTriangle, ArrowDown, ArrowDownUp, ArrowRight,
+  ArrowUp, Bell, Cable, Check, ChevronDown, ChevronLeft,
+  ChevronRight, CircleHelp, Clock3, Cloud, Command, Cpu,
+  Database, Download, EthernetPort, Eye, FileClock, Filter,
+  Gauge, Globe, HardDrive, LayoutDashboard, LifeBuoy, ListFilter,
+  LockKeyhole, Menu, Monitor, MoreHorizontal, Network, Plus,
+  Radio, RefreshCw, Router, Search, Server, Settings, Shield,
+  ShieldAlert, Signal, SlidersHorizontal, Smartphone, Terminal,
+  Wifi, X, Zap
 } from "lucide-react";
-import {
-  Area, AreaChart, CartesianGrid, ResponsiveContainer,
-  Tooltip, XAxis, YAxis
-} from "recharts";
 import "./App.css";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:8000";
-
-const NAV = [
-  { label: "Tổng quan", icon: LayoutDashboard },
-  { label: "Site", icon: Building2 },
-  { label: "Router", icon: Router },
-  { label: "Switch", icon: Network },
-  { label: "Wi-Fi", icon: Wifi },
-  { label: "Thiết bị", icon: Monitor },
-  { label: "Cảnh báo", icon: Bell },
-  { label: "Sơ đồ mạng", icon: Cable },
-  { label: "Cài đặt", icon: Settings },
+const initialSites = [
+  { id: 1, name: "Võ Minh - Văn phòng", location: "TP. Hồ Chí Minh", devices: 18 },
+  { id: 2, name: "Phúc Long - Site 01", location: "TP. Thủ Đức", devices: 24 },
+  { id: 3, name: "Chi nhánh Long An", location: "Long An", devices: 12 }
 ];
 
-const TYPE_BY_PAGE = {
-  Router: ["router"],
-  Switch: ["switch"],
-  "Wi-Fi": ["wi-fi", "wifi", "access point", "ap"],
+const initialDevices = [
+  { id: 1, name: "MikroTik CCR2004", ip: "192.168.10.1", type: "Router", siteId: 1, status: "Online", vendor: "MikroTik", method: "Chưa kết nối", uptime: "—" },
+  { id: 2, name: "Core-SW-01", ip: "192.168.10.2", type: "Switch", siteId: 1, status: "Unknown", vendor: "Cisco", method: "Chưa kết nối", uptime: "—" },
+  { id: 3, name: "AP-Office-01", ip: "192.168.10.10", type: "Wi-Fi", siteId: 1, status: "Unknown", vendor: "UniFi", method: "Chưa kết nối", uptime: "—" },
+  { id: 4, name: "File-Server", ip: "192.168.10.20", type: "Server", siteId: 1, status: "Unknown", vendor: "Windows", method: "Chưa kết nối", uptime: "—" },
+  { id: 5, name: "Router-PL-01", ip: "192.168.20.1", type: "Router", siteId: 2, status: "Unknown", vendor: "MikroTik", method: "Chưa kết nối", uptime: "—" },
+  { id: 6, name: "SW-Access-01", ip: "192.168.20.2", type: "Switch", siteId: 2, status: "Unknown", vendor: "Cisco", method: "Chưa kết nối", uptime: "—" },
+  { id: 7, name: "AP-Lobby-01", ip: "192.168.20.10", type: "Wi-Fi", siteId: 2, status: "Unknown", vendor: "Omada", method: "Chưa kết nối", uptime: "—" },
+  { id: 8, name: "NVR-01", ip: "192.168.20.30", type: "Camera/NVR", siteId: 2, status: "Unknown", vendor: "NVR", method: "Chưa kết nối", uptime: "—" },
+  { id: 9, name: "Router-LA-01", ip: "192.168.30.1", type: "Router", siteId: 3, status: "Unknown", vendor: "MikroTik", method: "Chưa kết nối", uptime: "—" }
+];
+
+const navGroups = [
+  {
+    title: "MONITORING",
+    items: [
+      ["Tổng quan", LayoutDashboard],
+      ["Topology", Network],
+      ["Thiết bị", Server],
+      ["Interfaces & Ports", EthernetPort],
+      ["Wi-Fi", Wifi],
+      ["WAN & Internet", Globe]
+    ]
+  },
+  {
+    title: "OPERATIONS",
+    items: [
+      ["Cảnh báo", Bell],
+      ["Sự cố", ShieldAlert],
+      ["Lịch sử sự kiện", FileClock],
+      ["Công cụ Network", Terminal]
+    ]
+  },
+  {
+    title: "ADMINISTRATION",
+    items: [
+      ["Sites", Database],
+      ["VLAN & IP", Cable],
+      ["Báo cáo", Activity],
+      ["Cài đặt", Settings]
+    ]
+  }
+];
+
+const iconFor = (type) => {
+  if (type === "Router") return Router;
+  if (type === "Switch") return Network;
+  if (type === "Wi-Fi") return Wifi;
+  if (type === "Server") return Server;
+  if (type === "Camera/NVR") return Eye;
+  if (type === "Endpoint") return Monitor;
+  return HardDrive;
 };
 
-const EMPTY_DEVICE = {
-  site_id: "",
-  name: "",
-  vendor: "",
-  model: "",
-  device_type: "Router",
-  address: "",
-  ping_enabled: true,
-  snmp_enabled: false,
-  snmp_port: 161,
-  snmp_version: "2c",
-  snmp_community: "public",
-};
-
-function getToken() {
-  return localStorage.getItem("netops_token") || "";
-}
-
-async function api(path, options = {}) {
-  const token = getToken();
-  const headers = { ...(options.headers || {}) };
-  if (options.body && !(options.body instanceof FormData)) {
-    headers["Content-Type"] = "application/json";
-  }
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const response = await fetch(`${API}${path}`, { ...options, headers });
-  if (response.status === 204) return null;
-
-  const raw = await response.text();
-  let data = null;
-  try {
-    data = raw ? JSON.parse(raw) : null;
-  } catch {
-    data = raw;
-  }
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error("Phiên đăng nhập hết hạn hoặc chưa đăng nhập.");
-    }
-    const detail = data?.detail;
-    throw new Error(
-      typeof detail === "string" ? detail :
-      detail ? JSON.stringify(detail) :
-      `API trả về lỗi HTTP ${response.status}`
-    );
-  }
-  return data;
-}
-
-function arrayOf(value) {
-  if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.items)) return value.items;
-  if (Array.isArray(value?.devices)) return value.devices;
-  if (Array.isArray(value?.sites)) return value.sites;
-  if (Array.isArray(value?.events)) return value.events;
-  return [];
-}
-
-function statusOf(device) {
-  const value = String(device?.status || "unknown").toLowerCase();
-  // A database row without a real check timestamp is not evidence that a device is UP.
-  if (device && !device.last_checked) return "unknown";
-  if (device?.is_stale) return "stale";
-  if (["maintenance", "maint"].includes(value)) return "maintenance";
-  if (["degraded", "warning"].includes(value)) return value === "warning" ? "warning" : "degraded";
-  if (["online", "up", "healthy"].includes(value)) return "online";
-  if (["offline", "down", "unreachable"].includes(value)) return "offline";
-  if (["stale"].includes(value)) return "stale";
-  return "unknown";
-}
-
-function typeOf(device) {
-  return String(device.device_type || device.type || "Other");
-}
-
-function formatDate(value) {
-  if (!value) return "Chưa có dữ liệu";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? String(value)
-    : date.toLocaleString("vi-VN");
-}
-
-function IconForType({ type, size = 18 }) {
-  const value = String(type || "").toLowerCase();
-  if (value.includes("router") || value.includes("gateway")) return <Router size={size} />;
-  if (value.includes("switch")) return <Network size={size} />;
-  if (value.includes("wi-fi") || value.includes("wifi") || value.includes("access point")) return <Wifi size={size} />;
-  if (value.includes("server")) return <Server size={size} />;
-  return <Monitor size={size} />;
-}
-
-function StatusBadge({ status, device }) {
-  const normalized = statusOf(device || { status });
-  const config = {
-    online: { label: "UP", icon: CheckCircle2 },
-    offline: { label: "DOWN", icon: XCircle },
-    warning: { label: "Cảnh báo", icon: AlertTriangle },
-    degraded: { label: "Suy giảm", icon: AlertTriangle },
-    stale: { label: "Dữ liệu cũ", icon: Clock3 },
-    maintenance: { label: "Bảo trì", icon: Settings },
-    unknown: { label: "UNKNOWN", icon: CircleHelp },
-  }[normalized] || { label: "UNKNOWN", icon: CircleHelp };
-  const Icon = config.icon;
+function Status({ status }) {
+  const cls = status === "Online" ? "online" :
+    status === "Offline" ? "offline" : "unknown";
   return (
-    <span className={`status-badge ${normalized}`}>
-      <Icon size={14} /> {config.label}
+    <span className={`status-pill ${cls}`}>
+      <i />{status === "Unknown" ? "Chưa xác định" : status}
     </span>
   );
 }
 
-function Metric({ title, value, description, icon: Icon, tone }) {
+function StatCard({ label, value, note, icon: Icon, tone }) {
   return (
-    <article className="metric-card">
-      <div className={`metric-icon ${tone}`}><Icon size={21} /></div>
-      <div className="metric-copy">
-        <span>{title}</span>
-        <strong>{value}</strong>
-        <small>{description}</small>
+    <div className="stat-card">
+      <div className="stat-top">
+        <span>{label}</span>
+        <span className={`stat-icon ${tone}`}><Icon size={18} /></span>
       </div>
-    </article>
-  );
-}
-
-function Empty({ icon: Icon = Database, title, detail }) {
-  return (
-    <div className="empty-panel">
-      <Icon size={30} />
-      <strong>{title}</strong>
-      <span>{detail}</span>
+      <div className="stat-value">{value}</div>
+      <div className="stat-note">{note}</div>
     </div>
   );
 }
 
-function Modal({ title, onClose, children }) {
+function EmptyState({ icon: Icon = Database, title, text }) {
   return (
-    <div className="modal-backdrop" onMouseDown={e => {
-      if (e.target === e.currentTarget) onClose();
-    }}>
-      <section className="modal-card">
-        <header className="modal-header">
-          <h2>{title}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Đóng"><X size={19} /></button>
-        </header>
-        {children}
-      </section>
+    <div className="empty-state">
+      <div className="empty-icon"><Icon size={25} /></div>
+      <strong>{title}</strong>
+      <p>{text}</p>
     </div>
   );
 }
 
 export default function App() {
+  const [sites, setSites] = useState(initialSites);
+  const [devices, setDevices] = useState(initialDevices);
+  const [selectedSite, setSelectedSite] = useState("1");
   const [page, setPage] = useState("Tổng quan");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [token, setToken] = useState(getToken);
-  const [authMode, setAuthMode] = useState("login");
-  const [auth, setAuth] = useState({
-    organization: "", email: "", password: "",
-  });
-  const [me, setMe] = useState(null);
-
-  const [devices, setDevices] = useState([]);
-  const [selectedSiteId, setSelectedSiteId] = useState(null);
-  const [sites, setSites] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [incidents, setIncidents] = useState([]);
-  const [topologyLinks, setTopologyLinks] = useState([]);
-  const [dashboard, setDashboard] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [siteFilter, setSiteFilter] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("Tất cả");
+  const [filterType, setFilterType] = useState("Tất cả");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [modal, setModal] = useState("");
-  const [editingDevice, setEditingDevice] = useState(null);
-  const [editingSite, setEditingSite] = useState(null);
-  const [deviceForm, setDeviceForm] = useState(EMPTY_DEVICE);
-  const [siteForm, setSiteForm] = useState({ name: "", address: "" });
-  const [topologyForm, setTopologyForm] = useState({ site_id: "", source_device_id: "", target_device_id: "", source_interface: "", target_interface: "", link_type: "ethernet", speed: "", provenance: "manual", notes: "" });
-  const [showTopologyForm, setShowTopologyForm] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [newSite, setNewSite] = useState({ name: "", location: "" });
+  const [newDevice, setNewDevice] = useState({
+    name: "", ip: "", type: "Router", vendor: ""
+  });
 
-  const loadData = useCallback(async (quiet = false) => {
-    if (!getToken()) return;
-    if (!quiet) setLoading(true);
-    else setRefreshing(true);
-    setError("");
+  const currentSite = sites.find(s => String(s.id) === selectedSite) || sites[0];
 
-    const results = await Promise.allSettled([
-      api("/api/me"),
-      api("/api/devices"),
-      api("/api/sites"),
-      api("/api/events"),
-      api("/api/dashboard"),
-      api("/api/incidents?limit=100"),
-      api("/api/topology"),
-    ]);
+  const siteDevices = useMemo(
+    () => devices.filter(d => String(d.siteId) === selectedSite),
+    [devices, selectedSite]
+  );
 
-    const [meResult, deviceResult, siteResult, eventResult, dashResult, incidentResult, topologyResult] = results;
+  const visibleDevices = useMemo(() => siteDevices.filter(d => {
+    const q = search.trim().toLowerCase();
+    const matchSearch = !q ||
+      [d.name, d.ip, d.vendor, d.type].some(v => v.toLowerCase().includes(q));
+    const matchStatus = filterStatus === "Tất cả" || d.status === filterStatus;
+    const matchType = filterType === "Tất cả" || d.type === filterType;
+    return matchSearch && matchStatus && matchType;
+  }), [siteDevices, search, filterStatus, filterType]);
 
-    if (meResult.status === "rejected") {
-      setError(meResult.reason?.message || "Không thể kết nối API.");
-      setLoading(false);
-      setRefreshing(false);
-      return;
-    }
-    setMe(meResult.value);
+  const onlineCount = siteDevices.filter(d => d.status === "Online").length;
+  const offlineCount = siteDevices.filter(d => d.status === "Offline").length;
+  const unknownCount = siteDevices.filter(d => d.status === "Unknown").length;
 
-    if (deviceResult.status === "fulfilled") setDevices(arrayOf(deviceResult.value));
-    else setError(deviceResult.reason?.message || "Không tải được thiết bị.");
+  function showNotice(message) {
+    setNotice(message);
+    window.setTimeout(() => setNotice(""), 3500);
+  }
 
-    if (siteResult.status === "fulfilled") setSites(arrayOf(siteResult.value));
-    if (eventResult.status === "fulfilled") setEvents(arrayOf(eventResult.value));
-    if (dashResult.status === "fulfilled") setDashboard(dashResult.value);
-    if (incidentResult.status === "fulfilled") setIncidents(arrayOf(incidentResult.value));
-    if (topologyResult.status === "fulfilled") setTopologyLinks(arrayOf(topologyResult.value));
-
-    setLoading(false);
-    setRefreshing(false);
-  }, []);
-
-  useEffect(() => {
-    if (!token) return;
-    loadData();
-    const timer = setInterval(() => loadData(true), 15000);
-    return () => clearInterval(timer);
-  }, [token, loadData]);
-
-  const online = devices.filter(d => statusOf(d) === "online").length;
-  const offline = devices.filter(d => statusOf(d) === "offline").length;
-  const warning = devices.filter(d => ["warning", "degraded"].includes(statusOf(d))).length;
-  const stale = devices.filter(d => statusOf(d) === "stale").length;
-  const unknown = devices.filter(d => statusOf(d) === "unknown").length;
-  const siteCount = sites.length;
-const selectedSite =
-  sites.find(s => String(s.id) === String(selectedSiteId)) ||
-  sites[0] ||
-  null;
-
-const selectedSiteDevices = selectedSite
-  ? devices.filter(
-      d => String(d.site_id) === String(selectedSite.id)
-    )
-  : [];
-
-const selectedSiteOnline = selectedSiteDevices.filter(
-  d => statusOf(d) === "online"
-).length;
-
-const selectedSiteOffline = selectedSiteDevices.filter(
-  d => statusOf(d) === "offline"
-).length;
-
-const countSiteType = (...types) =>
-  selectedSiteDevices.filter(d => {
-    const type = typeOf(d).toLowerCase();
-    return types.some(t => type.includes(t));
-  }).length;
-
-const siteDeviceGroups = [
-  {
-    title: "Router / Firewall",
-    types: ["router", "gateway", "firewall"],
-  },
-  {
-    title: "Switch",
-    types: ["switch"],
-  },
-  {
-    title: "Wi-Fi / Access Point",
-    types: ["wi-fi", "wifi", "access point", "ap"],
-  },
-  {
-    title: "Server / NVR",
-    types: ["server", "nvr"],
-  },
-  {
-    title: "Camera",
-    types: ["camera"],
-  },
-  {
-    title: "Thiết bị khác",
-    types: [],
-  },
-];
-  const filteredDevices = useMemo(() => devices.filter(d => {
-    const text = `${d.name || ""} ${d.address || ""} ${d.vendor || ""} ${d.model || ""} ${d.device_type || ""}`.toLowerCase();
-    const matchesQuery = text.includes(query.toLowerCase());
-    const matchesStatus = statusFilter === "all" || statusOf(d) === statusFilter;
-    const matchesSite = siteFilter === "all" || String(d.site_id) === String(siteFilter);
-    const deviceType = typeOf(d).toLowerCase();
-    const matchesPage =
-      !TYPE_BY_PAGE[page] ||
-      TYPE_BY_PAGE[page].some(type => deviceType.includes(type));
-    const isAlertPage = page !== "Cảnh báo" || ["offline", "warning", "degraded", "stale"].includes(statusOf(d));
-    return matchesQuery && matchesStatus && matchesSite && matchesPage && isAlertPage;
-  }), [devices, query, statusFilter, siteFilter, page]);
-
-  const pageDevices = ["Router", "Switch", "Wi-Fi", "Thiết bị", "Cảnh báo"].includes(page);
-
-  async function submitAuth(e) {
+  function addSite(e) {
     e.preventDefault();
-    setSaving(true);
-    setError("");
-    try {
-      const isRegister = authMode === "register";
-      const result = await api(
-        isRegister ? "/api/auth/register" : "/api/auth/login",
-        {
-          method: "POST",
-          body: JSON.stringify(auth),
-        }
-      );
-      const newToken = result?.access_token || result?.token;
-      if (newToken) {
-        localStorage.setItem("netops_token", newToken);
-        setToken(newToken);
-        setNotice(isRegister ? "Tạo tài khoản thành công." : "Đăng nhập thành công.");
-      } else if (isRegister) {
-        setAuthMode("login");
-        setNotice("Đăng ký thành công. Hãy đăng nhập.");
-      } else {
-        setError("API đăng nhập chưa trả về access_token. Kiểm tra định dạng phản hồi backend.");
-      }
-    } catch (err) {
-      setError(err.message || "Không thể đăng nhập.");
-    } finally {
-      setSaving(false);
-    }
+    const name = newSite.name.trim();
+    if (!name) return;
+    const site = {
+      id: Date.now(),
+      name,
+      location: newSite.location.trim() || "Chưa khai báo",
+      devices: 0
+    };
+    setSites(prev => [...prev, site]);
+    setSelectedSite(String(site.id));
+    setNewSite({ name: "", location: "" });
+    setModal("");
+    setPage("Sites");
+    showNotice("Đã tạo site trên giao diện.");
   }
 
-  function logout() {
-    localStorage.removeItem("netops_token");
-    setToken("");
-    setMe(null);
-    setDevices([]);
-    setSites([]);
-    setEvents([]);
-    setDashboard(null);
-    setPage("Tổng quan");
-  }
-
-  function openNewDevice() {
-    setEditingDevice(null);
-    setDeviceForm({ ...EMPTY_DEVICE, site_id: sites[0]?.id ?? "" });
-    setModal("device");
-  }
-
-  function openEditDevice(device) {
-    setEditingDevice(device);
-    setDeviceForm({
-      ...EMPTY_DEVICE,
-      ...device,
-      site_id: device.site_id ?? "",
-      address: device.address ?? "",
-      snmp_community: "public",
-    });
-    setModal("device");
-  }
-
-  async function saveDevice(e) {
+  function addDevice(e) {
     e.preventDefault();
-    setSaving(true);
-    setError("");
-    try {
-      const body = {
-        ...deviceForm,
-        site_id: Number(deviceForm.site_id),
-        snmp_port: Number(deviceForm.snmp_port || 161),
-      };
-      if (!body.site_id) throw new Error("Hãy chọn site cho thiết bị.");
-      if (editingDevice) {
-        await api(`/api/devices/${editingDevice.id}`, {
-          method: "PUT", body: JSON.stringify(body),
-        });
-      } else {
-        await api("/api/devices", {
-          method: "POST", body: JSON.stringify(body),
-        });
-      }
-      setModal("");
-      setNotice(editingDevice ? "Đã cập nhật thiết bị." : "Đã thêm thiết bị.");
-      await loadData(true);
-    } catch (err) {
-      setError(err.message || "Lưu thiết bị thất bại.");
-    } finally {
-      setSaving(false);
-    }
+    if (!newDevice.name.trim() || !newDevice.ip.trim()) return;
+    const device = {
+      id: Date.now(),
+      name: newDevice.name.trim(),
+      ip: newDevice.ip.trim(),
+      type: newDevice.type,
+      vendor: newDevice.vendor.trim() || "Chưa xác định",
+      siteId: Number(selectedSite),
+      status: "Unknown",
+      method: "Chưa kết nối",
+      uptime: "—"
+    };
+    setDevices(prev => [...prev, device]);
+    setSites(prev => prev.map(s => String(s.id) === selectedSite
+      ? { ...s, devices: s.devices + 1 } : s));
+    setNewDevice({ name: "", ip: "", type: "Router", vendor: "" });
+    setModal("");
+    setPage("Thiết bị");
+    showNotice("Đã thêm thiết bị vào danh sách giao diện.");
   }
 
-  async function deleteDevice(device) {
-    if (!window.confirm(`Xóa thiết bị "${device.name}" (${device.address})?`)) return;
-    try {
-      await api(`/api/devices/${device.id}`, { method: "DELETE" });
-      setNotice("Đã xóa thiết bị.");
-      await loadData(true);
-    } catch (err) {
-      setError(err.message || "Xóa thiết bị thất bại.");
-    }
-  }
-
-  async function saveSite(e) {
-    e.preventDefault();
-    setSaving(true);
-    setError("");
-    try {
-      if (editingSite) {
-        await api(`/api/sites/${editingSite.id}`, {
-          method: "PUT", body: JSON.stringify(siteForm),
-        });
-      } else {
-        await api("/api/sites", {
-          method: "POST", body: JSON.stringify(siteForm),
-        });
-      }
-      setModal("");
-      setNotice(editingSite ? "Đã cập nhật site." : "Đã tạo site.");
-      await loadData(true);
-    } catch (err) {
-      setError(err.message || "Lưu site thất bại.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deleteSite(site) {
-    if (!window.confirm(`Xóa site "${site.name}"? Các thiết bị thuộc site có thể bị xóa theo backend.`)) return;
-    try {
-      await api(`/api/sites/${site.id}`, { method: "DELETE" });
-      setNotice("Đã xóa site.");
-      await loadData(true);
-    } catch (err) {
-      setError(err.message || "Xóa site thất bại.");
-    }
-  }
-
-  async function saveTopologyLink(e) {
-    e.preventDefault();
-    setSaving(true);
-    setError("");
-    try {
-      const payload = {
-        ...topologyForm,
-        site_id: Number(topologyForm.site_id),
-        source_device_id: Number(topologyForm.source_device_id),
-        target_device_id: Number(topologyForm.target_device_id),
-      };
-      if (!payload.site_id || !payload.source_device_id || !payload.target_device_id) {
-        throw new Error("Chọn site, thiết bị nguồn và thiết bị đích.");
-      }
-      if (payload.source_device_id === payload.target_device_id) {
-        throw new Error("Hai đầu liên kết phải là hai thiết bị khác nhau.");
-      }
-      await api("/api/topology", { method: "POST", body: JSON.stringify(payload) });
-      setShowTopologyForm(false);
-      setTopologyForm({ site_id: "", source_device_id: "", target_device_id: "", source_interface: "", target_interface: "", link_type: "ethernet", speed: "", provenance: "manual", notes: "" });
-      setNotice("Đã khai báo liên kết topology.");
-      await loadData(true);
-    } catch (err) {
-      setError(err.message || "Không lưu được liên kết.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function updateIncident(incident, state) {
-    try {
-      await api(`/api/incidents/${incident.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ state, notes: "" }),
-      });
-      setNotice(`Đã cập nhật incident #${incident.id}.`);
-      await loadData(true);
-    } catch (err) {
-      setError(err.message || "Không cập nhật được incident.");
-    }
-  }
-
-  function exportCsv() {
-    const rows = [
-      ["Tên thiết bị", "IP", "Loại", "Hãng", "Model", "Site", "Trạng thái"],
-      ...filteredDevices.map(d => [
-        d.name, d.address, typeOf(d), d.vendor, d.model,
-        sites.find(s => s.id === d.site_id)?.name || d.site_id,
-        statusOf(d),
-      ]),
-    ];
-    const csv = "\uFEFF" + rows.map(row =>
-      row.map(v => `"${String(v ?? "").replaceAll('"', '""')}"`).join(",")
-    ).join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+  function exportDevices() {
+    const header = ["Name", "IP", "Type", "Vendor", "Status"];
+    const rows = visibleDevices.map(d =>
+      [d.name, d.ip, d.type, d.vendor, d.status]
+    );
+    const csv = [header, ...rows]
+      .map(row => row.map(v => `"${String(v).replaceAll('"', '""')}"`).join(","))
+      .join("\r\n");
+    const url = URL.createObjectURL(new Blob(["\uFEFF" + csv], {
+      type: "text/csv;charset=utf-8;"
+    }));
     const a = document.createElement("a");
     a.href = url;
     a.download = "netops-devices.csv";
     a.click();
     URL.revokeObjectURL(url);
+    showNotice("Đã xuất danh sách thiết bị đang hiển thị.");
   }
 
-  if (!token) {
-    return (
-      <div className="auth-screen">
-        <div className="auth-decoration">
-          <div className="auth-brand"><Activity size={26} /> ChiThien <span>NETWORK MONITOR</span></div>
-          <div className="auth-hero">
-            <span className="eyebrow">INFRASTRUCTURE OBSERVABILITY</span>
-            <h1>Toàn bộ hạ tầng mạng.<br /><span>Một nơi quản lý.</span></h1>
-            <p>Giám sát tập trung thiết bị, chi nhánh và cảnh báo mạng trên cùng một nền tảng.</p>
-            <div className="auth-points">
-              <span><ShieldCheck size={17} /> Phân tách dữ liệu theo tổ chức</span>
-              <span><Activity size={17} /> Giám sát trạng thái qua API</span>
-              <span><Network size={17} /> Quản lý thiết bị đa site</span>
-            </div>
-          </div>
-         <small className="auth-footnote">CHITHIEN · NETWORK OPERATIONS CENTER</small>
-        </div>
-        <form className="auth-card" onSubmit={submitAuth}>
-          <div className="auth-card-icon"><LockKeyhole size={22} /></div>
-          <h2>{authMode === "login" ? "Đăng nhập hệ thống" : "Tạo tổ chức mới"}</h2>
-          <p>{authMode === "login" ? "Đăng nhập để quản lý hạ tầng mạng của mày." : "Tạo tài khoản quản trị viên."}</p>
-          {authMode === "register" && (
-            <label>Tên tổ chức
-              <input required value={auth.organization} onChange={e => setAuth({ ...auth, organization: e.target.value })} placeholder="Tên công ty" />
-            </label>
-          )}
-          <label>Email
-            <input type="email" required value={auth.email} onChange={e => setAuth({ ...auth, email: e.target.value })} placeholder="admin@company.com" />
-          </label>
-          <label>Mật khẩu
-            <input type="password" required minLength={authMode === "register" ? 12 : 1} value={auth.password} onChange={e => setAuth({ ...auth, password: e.target.value })} placeholder={authMode === "register" ? "Tối thiểu 12 ký tự" : "Nhập mật khẩu"} />
-          </label>
-          {error && <div className="inline-error"><AlertTriangle size={16} />{error}</div>}
-          <button className="primary-button auth-submit" disabled={saving}>
-            {saving ? <LoaderCircle className="spin" size={17} /> : <LockKeyhole size={17} />}
-            {saving ? "Đang xử lý..." : authMode === "login" ? "Đăng nhập" : "Đăng ký"}
-          </button>
-          <button type="button" className="text-button" onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setError(""); }}>
-            {authMode === "login" ? "Chưa có tài khoản? Đăng ký" : "Đã có tài khoản? Đăng nhập"}
-          </button>
-          <small className="api-address">API: {API}</small>
-        </form>
-      </div>
-    );
-  }
+  const isDevicePage = page === "Thiết bị" || page === "Interfaces & Ports";
+  const isOverview = page === "Tổng quan";
 
   return (
-    <div className="netops-app">
-      <aside className={`sidebar ${sidebarOpen ? "" : "collapsed"}`}>
+    <div className="app-shell">
+      <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="brand">
-          <div className="brand-mark"><Activity size={22} /></div>
-          {sidebarOpen && <div className="brand-text"><b>ChiThien</b><small>NETWORK MONITOR</small></div>}
+          <div className="brand-mark"><Activity size={23} /></div>
+          <div><strong>NETOPS<span> REALTIME</span></strong><small>NETWORK OPERATIONS</small></div>
+          <button className="icon-btn mobile-close" onClick={() => setSidebarOpen(false)}><X size={18} /></button>
         </div>
 
-        {sidebarOpen && <div className="nav-section-title">WORKSPACE</div>}
-        <nav className="nav-list">
-          {NAV.map(item => {
-            const Icon = item.icon;
-            return (
-              <button key={item.label} title={item.label}
-                className={`nav-item ${page === item.label ? "active" : ""}`}
-                onClick={() => { setPage(item.label); setError(""); }}>
-                <Icon size={19} />
-                {sidebarOpen && <span>{item.label}</span>}
-                {item.label === "Cảnh báo" && offline > 0 && sidebarOpen && <b className="nav-count">{offline}</b>}
-                {page === item.label && <span className="nav-active-bar" />}
-              </button>
-            );
-          })}
-        </nav>
+        <div className="workspace">
+          <div className="workspace-avatar">N</div>
+          <div className="workspace-text"><strong>Network Operations</strong><small>Workspace · Admin</small></div>
+          <ChevronDown size={15} />
+        </div>
 
-        {sidebarOpen && (
-          <div className="sidebar-bottom">
-            <div className="side-status"><span className="pulse-dot" /> API đã đăng nhập</div>
-            <div className="profile-row">
-              <div className="profile-avatar">{(me?.email || "AD").slice(0, 2).toUpperCase()}</div>
-              <div className="profile-copy"><b>{me?.email || "NetOps Admin"}</b><small>Quản trị hệ thống</small></div>
-              <button className="icon-btn" onClick={logout} title="Đăng xuất"><LogOut size={16} /></button>
+        <div className="nav-scroll">
+          {navGroups.map(group => (
+            <div className="nav-group" key={group.title}>
+              <div className="nav-label">{group.title}</div>
+              {group.items.map(([label, Icon]) => (
+                <button
+                  key={label}
+                  className={`nav-item ${page === label ? "active" : ""}`}
+                  onClick={() => { setPage(label); setSidebarOpen(false); }}
+                >
+                  <Icon size={17} strokeWidth={1.8} />
+                  <span>{label}</span>
+                  {label === "Cảnh báo" && offlineCount > 0 && (
+                    <span className="nav-count">{offlineCount}</span>
+                  )}
+                </button>
+              ))}
             </div>
+          ))}
+        </div>
+
+        <div className="sidebar-bottom">
+          <div className="connection-card">
+            <div className="connection-heading"><span className="connection-dot" /> Backend status</div>
+            <strong>Chưa kiểm tra kết nối</strong>
+            <small>Chưa xác nhận API server</small>
           </div>
-        )}
+          <button className="nav-item" onClick={() => showNotice("Mở tài liệu vận hành khi được tích hợp.")}>
+            <LifeBuoy size={17} /><span>Trợ giúp</span><ArrowUp size={14} className="muted-icon" />
+          </button>
+          <div className="user-profile">
+            <div className="user-avatar">IT</div>
+            <div className="user-details"><strong>Network Admin</strong><small>Administrator</small></div>
+            <MoreHorizontal size={18} />
+          </div>
+        </div>
       </aside>
+
+      {sidebarOpen && <button className="sidebar-overlay" onClick={() => setSidebarOpen(false)} aria-label="Đóng menu" />}
 
       <main className="main-area">
         <header className="topbar">
-          <div className="topbar-left">
-            <button className="icon-btn menu-btn" onClick={() => setSidebarOpen(v => !v)}><Menu size={20} /></button>
-            <div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><b>{page}</b></div>
+          <div className="breadcrumbs">
+            <button className="icon-btn mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={19} /></button>
+            <span>NetOps</span><ChevronRight size={14} /><strong>{page}</strong>
           </div>
           <div className="topbar-actions">
-            <label className="global-search"><Search size={15} /><input aria-label="Tìm thiết bị" placeholder="Tìm kiếm thiết bị, IP, hostname..." value={search} onChange={e => setSearch(e.target.value)} /></label>
-            <span className="monitor-pill"><span className="pulse-dot" /> Live monitoring</span>
-            <button className="icon-btn" onClick={() => loadData(true)} title="Làm mới"><RefreshCw size={17} className={refreshing ? "spin" : ""} /></button>
-            <div className="topbar-avatar">{(me?.email || "AD").slice(0, 2).toUpperCase()}</div>
+            <div className="global-search">
+              <Search size={16} />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm thiết bị, IP..." />
+              <kbd>⌘ K</kbd>
+            </div>
+            <button className="icon-btn" title="Trạng thái hệ thống" onClick={() => showNotice("Trạng thái backend chưa được xác minh.")}><Activity size={18} /></button>
+            <button className="icon-btn notification-btn" title="Thông báo" onClick={() => setPage("Cảnh báo")}><Bell size={18} /><i /></button>
+            <div className="top-avatar">IT</div>
           </div>
         </header>
 
-        <div className="content-area">
-          {(error || notice) && (
-            <div className={`notice-banner ${error ? "error" : "success"}`}>
-              {error ? <AlertTriangle size={17} /> : <Check size={17} />}
-              <span>{error || notice}</span>
-              <button className="icon-btn" onClick={() => { setError(""); setNotice(""); }}><X size={16} /></button>
-            </div>
-          )}
-
-          <div className="page-heading">
+        <div className="page-content">
+          <section className="page-heading">
             <div>
-              <div className="eyebrow">{page === "Tổng quan" ? "NETWORK OPERATIONS CENTER / LIVE" : "MANAGEMENT CONSOLE"}</div>
+              <div className="eyebrow"><span className="eyebrow-dot" /> NETWORK OPERATIONS CENTER</div>
               <h1>{page}</h1>
-              <p>
-                {page === "Tổng quan"
-                  ? "Theo dõi sức khỏe hạ tầng và trạng thái các site theo thời gian thực."
-                  : `Quản lý ${page.toLowerCase()} trong hệ thống ChiThien.`}
+              <p className="page-description">
+                {isOverview ? "Theo dõi hạ tầng mạng và tình trạng thiết bị theo từng site." :
+                  page === "Topology" ? "Sơ đồ kết nối thiết bị mạng theo dữ liệu được khai báo." :
+                  page === "Thiết bị" ? "Quản lý thiết bị mạng, địa chỉ IP và trạng thái giám sát." :
+                  page === "Sites" ? "Quản lý địa điểm và nhóm thiết bị theo từng site." :
+                  `Quản lý và theo dõi ${page.toLowerCase()} trong hạ tầng mạng.`}
               </p>
             </div>
             <div className="heading-actions">
-              {page === "Thiết bị" && <button className="secondary-button" onClick={exportCsv}><Download size={16} /> Xuất CSV</button>}
-              {page === "Thiết bị" && <button className="primary-button" onClick={openNewDevice}><Plus size={17} /> Thêm thiết bị</button>}
-              {page === "Site" && <button className="primary-button" onClick={() => { setEditingSite(null); setSiteForm({ name: "", address: "" }); setModal("site"); }}><Plus size={17} /> Thêm site</button>}
-              {page === "Tổng quan" && <button className="secondary-button" onClick={() => loadData(true)}><RefreshCw size={16} /> Làm mới</button>}
-            </div>
-          </div>
-
-          <div className="metrics-grid">
-            <Metric title="Tổng thiết bị" value={loading ? "…" : devices.length} description="Thiết bị đã khai báo trong hệ thống" icon={Server} tone="blue" />
-            <Metric title="Đang hoạt động" value={loading ? "…" : online} description={devices.length ? `${(online / devices.length * 100).toFixed(1)}% tổng thiết bị` : "Chưa có dữ liệu thiết bị"} icon={CheckCircle2} tone="green" />
-            <Metric title="Offline" value={loading ? "…" : offline} description="Không phản hồi theo dữ liệu worker" icon={AlertTriangle} tone="red" />
-            <Metric title="Cảnh báo" value={loading ? "…" : warning + stale + unknown} description={`${warning} cảnh báo · ${stale} dữ liệu cũ · ${unknown} chưa rõ`} icon={Clock3} tone="purple" />
-          </div>
-
-          {page === "Tổng quan" && (
-            <>
-              <div className="section-title-row"><div><h2>Tổng quan hạ tầng</h2><p>Số liệu được tải từ API của hệ thống.</p></div><span className="updated-label"><Clock3 size={14} /> Tự làm mới mỗi 15 giây</span></div>
-              <div className="dashboard-grid">
-                <section className="panel chart-panel">
-                  <div className="panel-heading">
-                    <div><h3><Activity size={18} /> Sức khỏe thiết bị</h3><p>Phân bố trạng thái theo dữ liệu hiện tại</p></div>
-                    <span className="small-tag">REAL DATA</span>
-                  </div>
-                  <div className="health-bars">
-                    <div className="health-summary"><strong>{devices.length ? Math.round(online / devices.length * 100) : 0}%</strong><span>thiết bị UP theo trạng thái hiện tại</span></div>
-                    <div className="stacked-bar">
-                      <span className="bar-online" style={{ width: `${devices.length ? online / devices.length * 100 : 0}%` }} />
-                      <span className="bar-offline" style={{ width: `${devices.length ? offline / devices.length * 100 : 0}%` }} />
-                      <span className="bar-unknown" style={{ width: `${devices.length ? (unknown + stale + warning) / devices.length * 100 : 0}%` }} />
-                    </div>
-                    <div className="legend-row">
-                      <span><i className="legend-dot green" />Online <b>{online}</b></span>
-                      <span><i className="legend-dot red" />Offline <b>{offline}</b></span>
-                      <span><i className="legend-dot gray" />UNKNOWN / STALE / Cảnh báo <b>{unknown + stale + warning}</b></span>
-                    </div>
-                  </div>
-                  <div className="panel-divider" />
-                  <div className="panel-heading"><div><h3><Zap size={18} /> Độ trễ gần nhất</h3><p>Giá trị latency do worker trả về</p></div></div>
-                  <div className="latency-list">
-                    {devices.filter(d => d.latency_ms != null && statusOf(d) === "online").slice(0, 5).map(d => (
-                      <div className="latency-row" key={d.id}>
-                        <span className="latency-name"><IconForType type={typeOf(d)} size={16} />{d.name}</span>
-                        <div className="latency-track"><span style={{ width: `${Math.min(100, Number(d.latency_ms) / 2)}%` }} /></div>
-                        <b>{Number(d.latency_ms).toFixed(1)} ms</b>
-                      </div>
-                    ))}
-                    {!devices.some(d => d.latency_ms != null && statusOf(d) === "online") &&
-                      <p className="muted-note">Chưa có dữ liệu latency. Worker cần kiểm tra thiết bị trước.</p>}
-                  </div>
-                </section>
-
-                <section className="panel alerts-panel">
-                  <div className="panel-heading">
-                    <div><h3><Bell size={18} /> Cảnh báo gần đây</h3><p>Sự kiện nhận từ backend</p></div>
-                    <button className="text-button compact" onClick={() => setPage("Cảnh báo")}>Xem tất cả <ChevronRight size={15} /></button>
-                  </div>
-                  <div className="event-list">
-                    {events.slice(0, 6).map((event, index) => (
-                      <div className="event-row" key={event.id ?? index}>
-                        <div className={`event-symbol ${String(event.level).toLowerCase()}`}>
-                          {String(event.level).toLowerCase() === "info" ? <Activity size={16} /> : <AlertTriangle size={16} />}
-                        </div>
-                        <div className="event-copy">
-                          <b>{event.device_name || `Thiết bị #${event.device_id || "—"}`}</b>
-                          <span>{event.message || "Sự kiện giám sát"}</span>
-                          <small>{formatDate(event.created_at)}</small>
-                        </div>
-                      </div>
-                    ))}
-                    {!events.length && <Empty icon={CheckCircle2} title="Chưa có sự kiện" detail="Các sự kiện sẽ xuất hiện khi backend ghi nhận." />}
-                  </div>
-                </section>
+              <div className="site-select-wrap">
+                <Network size={16} />
+                <select value={selectedSite} onChange={e => setSelectedSite(e.target.value)} aria-label="Chọn site">
+                  {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <ChevronDown size={14} />
               </div>
+              <button className="btn btn-secondary" onClick={() => showNotice("Chưa cấu hình API để đồng bộ dữ liệu thực.")}>
+                <RefreshCw size={15} /> Đồng bộ
+              </button>
+              <button className="btn btn-primary" onClick={() => setModal(page === "Sites" ? "site" : "device")}>
+                <Plus size={16} /> {page === "Sites" ? "Thêm site" : "Thêm thiết bị"}
+              </button>
+            </div>
+          </section>
 
-              <section className="panel table-panel">
-                <div className="panel-heading">
-                  <div><h3><Activity size={18} /> Thiết bị cần chú ý</h3><p>Thiết bị Offline hoặc chưa có trạng thái xác định</p></div>
-                  <button className="secondary-button" onClick={() => setPage("Thiết bị")}>Quản lý thiết bị <ChevronRight size={15} /></button>
+          <div className="demo-notice">
+            <CircleHelp size={16} />
+            <span><strong>Chế độ giao diện:</strong> Dữ liệu khởi tạo chỉ để minh họa bố cục. Chưa kết nối API/SNMP nên trạng thái thiết bị chưa được xác minh.</span>
+            <button onClick={() => showNotice("Cần kết nối API backend và worker giám sát để lấy dữ liệu thật.")}>Chi tiết</button>
+          </div>
+
+          {isOverview && (
+            <>
+              <section className="stats-grid">
+                <StatCard label="Tổng thiết bị" value={siteDevices.length} note={`${sites.length} site trong workspace`} icon={Server} tone="blue" />
+                <StatCard label="Đang hoạt động" value={onlineCount} note="Đã được xác nhận online" icon={Check} tone="green" />
+                <StatCard label="Mất kết nối" value={offlineCount} note="Thiết bị được xác nhận offline" icon={AlertTriangle} tone="red" />
+                <StatCard label="Chưa giám sát" value={unknownCount} note="Chưa có dữ liệu kiểm tra" icon={Eye} tone="amber" />
+              </section>
+
+              <section className="overview-grid">
+                <div className="panel network-panel">
+                  <div className="panel-heading">
+                    <div><h2><Network size={18} /> Network topology</h2><p>Sơ đồ thiết bị thuộc {currentSite?.name}</p></div>
+                    <button className="btn btn-quiet" onClick={() => setPage("Topology")}>Mở sơ đồ <ArrowRight size={14} /></button>
+                  </div>
+                  {siteDevices.length === 0 ? (
+                    <EmptyState icon={Network} title="Site chưa có thiết bị" text="Thêm thiết bị để bắt đầu xây dựng sơ đồ mạng." />
+                  ) : (
+                    <div className="topology-canvas">
+                      <div className="topology-lines" />
+                      <div className="topo-node topo-router">
+                        <div className="topo-device-icon"><Router size={22} /></div>
+                        <div className="topo-device-info"><strong>{siteDevices.find(d => d.type === "Router")?.name || "Router chưa khai báo"}</strong><small>{siteDevices.find(d => d.type === "Router")?.ip || "Chưa có IP"}</small></div>
+                        <Status status={siteDevices.find(d => d.type === "Router")?.status || "Unknown"} />
+                      </div>
+                      <div className="topo-connector"><span /></div>
+                      <div className="topo-node topo-core">
+                        <div className="topo-device-icon purple"><Network size={21} /></div>
+                        <div className="topo-device-info"><strong>Switch / LAN</strong><small>Liên kết chưa được xác minh</small></div>
+                        <span className="link-label">LINK UNKNOWN</span>
+                      </div>
+                      <div className="topo-branches">
+                        {siteDevices.filter(d => d.type !== "Router").slice(0, 4).map(d => {
+                          const Icon = iconFor(d.type);
+                          return <div className="topo-branch" key={d.id}>
+                            <div className="branch-line" />
+                            <div className="topo-leaf">
+                              <Icon size={19} />
+                              <strong>{d.name}</strong>
+                              <small>{d.ip}</small>
+                              <Status status={d.status} />
+                            </div>
+                          </div>;
+                        })}
+                      </div>
+                      <div className="topology-footer"><span><i className="legend-dot green-dot" /> Online</span><span><i className="legend-dot red-dot" /> Offline</span><span><i className="legend-dot gray-dot" /> Chưa xác định</span></div>
+                    </div>
+                  )}
                 </div>
-                <DeviceTable devices={devices.filter(d => statusOf(d) !== "online").slice(0, 6)} sites={sites} onEdit={openEditDevice} onDelete={deleteDevice} />
+
+                <div className="panel site-panel">
+                  <div className="panel-heading">
+                    <div><h2><Database size={18} /> Site overview</h2><p>Thông tin địa điểm đang chọn</p></div>
+                    <button className="icon-btn" onClick={() => setPage("Sites")}><MoreHorizontal size={19} /></button>
+                  </div>
+                  <div className="site-identity">
+                    <div className="site-large-icon"><Network size={25} /></div>
+                    <div><strong>{currentSite?.name}</strong><small><Globe size={13} /> {currentSite?.location}</small></div>
+                  </div>
+                  <div className="site-metrics">
+                    <div><span>Thiết bị khai báo</span><strong>{siteDevices.length}</strong></div>
+                    <div><span>Router</span><strong>{siteDevices.filter(d => d.type === "Router").length}</strong></div>
+                    <div><span>Switch</span><strong>{siteDevices.filter(d => d.type === "Switch").length}</strong></div>
+                    <div><span>Wi-Fi AP</span><strong>{siteDevices.filter(d => d.type === "Wi-Fi").length}</strong></div>
+                  </div>
+                  <button className="btn btn-secondary btn-full" onClick={() => setPage("Thiết bị")}>Xem danh sách thiết bị <ArrowRight size={15} /></button>
+                </div>
+              </section>
+
+              <section className="bottom-grid">
+                <div className="panel">
+                  <div className="panel-heading">
+                    <div><h2><Activity size={18} /> Hiệu năng hệ thống</h2><p>CPU, RAM và băng thông</p></div>
+                    <span className="muted-badge">Chưa có telemetry</span>
+                  </div>
+                  <div className="telemetry-empty">
+                    <div className="telemetry-icon"><Gauge size={22} /></div>
+                    <div><strong>Chưa nhận dữ liệu hiệu năng</strong><p>Cần tích hợp SNMP/API với thiết bị để hiển thị CPU, RAM và lưu lượng thực.</p></div>
+                  </div>
+                  <div className="metric-placeholder-grid">
+                    <div><Cpu size={17} /><span>CPU usage</span><strong>—</strong></div>
+                    <div><Database size={17} /><span>Memory</span><strong>—</strong></div>
+                    <div><ArrowDownUp size={17} /><span>Traffic</span><strong>—</strong></div>
+                  </div>
+                </div>
+                <div className="panel">
+                  <div className="panel-heading"><div><h2><ShieldAlert size={18} /> Sự kiện gần đây</h2><p>Thông tin từ hệ thống</p></div><button className="btn btn-quiet" onClick={() => setPage("Lịch sử sự kiện")}>Xem tất cả <ArrowRight size={14} /></button></div>
+                  <EmptyState icon={FileClock} title="Chưa có sự kiện giám sát" text="Sự kiện sẽ xuất hiện khi backend ghi nhận dữ liệu và cảnh báo." />
+                </div>
               </section>
             </>
           )}
 
-          
-{page === "Site" && (
-  <section className="site-workspace">
-    {/* CỘT TRÁI: DANH SÁCH SITE */}
-    <section className="panel site-picker">
-      <div className="panel-heading">
-        <div>
-          <h3><Building2 size={18} /> Danh sách Site</h3>
-          <p>Chọn địa điểm cần xem</p>
-        </div>
-        <span className="small-tag">{sites.length} SITE</span>
-      </div>
-
-      <div className="site-picker-list">
-        {sites.map(site => {
-          const siteDevices = devices.filter(
-            d => String(d.site_id) === String(site.id)
-          );
-          const active = selectedSite &&
-            String(selectedSite.id) === String(site.id);
-
-          return (
-            <button
-              type="button"
-              key={site.id}
-              className={`site-picker-item ${active ? "selected" : ""}`}
-              onClick={() => setSelectedSiteId(site.id)}
-            >
-              <div className="site-picker-icon">
-                <Building2 size={19} />
-              </div>
-
-              <div className="site-picker-copy">
-                <b>{site.name}</b>
-                <span>{site.address || "Chưa có địa chỉ"}</span>
-                <small>{siteDevices.length} thiết bị</small>
-              </div>
-
-              <ChevronRight size={18} />
-            </button>
-          );
-        })}
-
-        {!sites.length && (
-          <Empty
-            icon={Building2}
-            title="Chưa có Site"
-            detail="Tạo Site để bắt đầu quản lý."
-          />
-        )}
-      </div>
-    </section>
-
-    {/* CỘT PHẢI: THỐNG KÊ VÀ SƠ ĐỒ */}
-    <div className="site-detail-column">
-      {!selectedSite ? (
-        <section className="panel">
-          <Empty
-            icon={Network}
-            title="Chưa chọn Site"
-            detail="Thêm Site hoặc chọn một Site bên trái."
-          />
-        </section>
-      ) : (
-        <>
-          <section className="panel site-detail-header">
-            <div>
-              <div className="eyebrow">
-                SITE-{String(selectedSite.id).padStart(3, "0")}
-              </div>
-              <h2>{selectedSite.name}</h2>
-              <p>{selectedSite.address || "Chưa cập nhật địa chỉ"}</p>
-            </div>
-
-            <div className="heading-actions">
-              <button
-                className="secondary-button"
-                onClick={() => {
-                  setEditingSite(selectedSite);
-                  setSiteForm({
-                    name: selectedSite.name || "",
-                    address: selectedSite.address || "",
-                  });
-                  setModal("site");
-                }}
-              >
-                <Pencil size={15} /> Sửa Site
-              </button>
-
-              <button
-                className="secondary-button"
-                onClick={() => {
-                  setSiteFilter(String(selectedSite.id));
-                  setPage("Thiết bị");
-                }}
-              >
-                <Eye size={15} /> Danh sách thiết bị
-              </button>
-            </div>
-          </section>
-
-          <div className="site-detail-metrics">
-            <Metric
-              title="Tổng thiết bị"
-              value={selectedSiteDevices.length}
-              description="Thiết bị đã khai báo"
-              icon={Server}
-              tone="blue"
-            />
-            <Metric
-              title="Online"
-              value={selectedSiteOnline}
-              description="Đang phản hồi"
-              icon={CheckCircle2}
-              tone="green"
-            />
-            <Metric
-              title="Offline"
-              value={selectedSiteOffline}
-              description="Cần kiểm tra"
-              icon={AlertTriangle}
-              tone="red"
-            />
-          </div>
-
-          <section className="panel">
-            <div className="panel-heading">
-              <div>
-                <h3><Network size={18} /> Thống kê theo loại</h3>
-                <p>Chỉ tính thiết bị thuộc Site đang chọn</p>
-              </div>
-            </div>
-
-            <div className="site-type-grid">
-              {[
-                { label: "Router", types: ["router", "gateway"], icon: Router },
-                { label: "Firewall", types: ["firewall"], icon: ShieldCheck },
-                { label: "Switch", types: ["switch"], icon: Network },
-                { label: "Wi-Fi / AP", types: ["wi-fi", "wifi", "access point", "ap"], icon: Wifi },
-                { label: "Server / NVR", types: ["server", "nvr"], icon: Server },
-                { label: "Camera", types: ["camera"], icon: Eye },
-              ].map(item => {
-                const TypeIcon = item.icon;
-                const count = selectedSiteDevices.filter(d => {
-                  const type = typeOf(d).toLowerCase();
-                  return item.types.some(t => type.includes(t));
-                }).length;
-
-                return (
-                  <div className="site-type-card" key={item.label}>
-                    <TypeIcon size={20} />
-                    <span>{item.label}</span>
-                    <b>{count}</b>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="panel site-network-panel">
-            <div className="panel-heading">
-              <div>
-                <h3><Cable size={19} /> Sơ đồ mạng — {selectedSite.name}</h3>
-                <p>
-                  Thiết bị và trạng thái lấy từ API của Site đang chọn.
-                </p>
-              </div>
-              <span className="small-tag">
-                {selectedSiteDevices.length} THIẾT BỊ
-              </span>
-            </div>
-
-            <div className="topology-notice">
-              <CircleHelp size={17} />
-              <span>
-                Sơ đồ nhóm thiết bị để theo dõi. Đường nối chưa xác nhận
-                là kết nối vật lý thực tế; cần dữ liệu topology hoặc
-                LLDP/CDP để xác định kết nối chính xác.
-              </span>
-            </div>
-
-            {selectedSiteDevices.length ? (
-              <div className="site-network-groups">
-                {siteDeviceGroups.map(group => {
-                  const groupDevices = selectedSiteDevices.filter(d => {
-                    const type = typeOf(d).toLowerCase();
-
-                    if (!group.types.length) {
-                      return !siteDeviceGroups
-                        .filter(g => g.types.length)
-                        .some(g => g.types.some(t => type.includes(t)));
-                    }
-
-                    return group.types.some(t => type.includes(t));
-                  });
-
-                  if (!groupDevices.length) return null;
-
-                  return (
-                    <div className="site-network-group" key={group.title}>
-                      <div className="site-network-group-title">
-                        <Network size={17} />
-                        <b>{group.title}</b>
-                        <span>{groupDevices.length}</span>
-                      </div>
-
-                      <div className="site-network-nodes">
-                        {groupDevices.map(device => (
-                          <article
-                            className="site-network-node"
-                            key={device.id}
-                          >
-                            <div
-                              className={`site-network-node-icon ${statusOf(device)}`}
-                            >
-                              <IconForType type={typeOf(device)} size={22} />
-                            </div>
-
-                            <div className="site-network-node-info">
-                              <b>{device.name}</b>
-                              <span>{device.address || "Chưa có IP"}</span>
-                              <small>
-                                {[device.vendor, device.model]
-                                  .filter(Boolean)
-                                  .join(" · ") || typeOf(device)}
-                              </small>
-                            </div>
-
-                            <StatusBadge device={device} />
-                          </article>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <Empty
-                icon={Network}
-                title="Site chưa có thiết bị"
-                detail="Thêm thiết bị và gán vào Site này để hiển thị."
-              />
-            )}
-          </section>
-        </>
-      )}
-    </div>
-  </section>
-)}
-
-
-          {page === "Cảnh báo" && (
-            <section className="panel table-panel">
+          {page === "Topology" && (
+            <section className="panel topology-full-panel">
               <div className="panel-heading">
-                <div><h3><Bell size={18} /> Incident / Sự cố</h3><p>Incident chỉ mở khi worker xác nhận thiết bị DOWN qua nhiều lần kiểm tra.</p></div>
-                <span className="small-tag">{incidents.filter(i => ["OPEN", "ACKNOWLEDGED"].includes(i.state)).length} ĐANG MỞ</span>
+                <div><h2><Network size={18} /> Topology · {currentSite?.name}</h2><p>{siteDevices.length} thiết bị được khai báo · Liên kết vật lý chưa được khám phá tự động</p></div>
+                <button className="btn btn-secondary" onClick={() => setPage("Thiết bị")}><Server size={15} /> Quản lý thiết bị</button>
               </div>
-              {incidents.length ? <div className="table-scroll"><table className="device-table"><thead><tr><th>MỨC ĐỘ</th><th>SỰ CỐ</th><th>THIẾT BỊ</th><th>BẮT ĐẦU</th><th>TRẠNG THÁI</th><th>THAO TÁC</th></tr></thead><tbody>
-                {incidents.map(incident => <tr key={incident.id}>
-                  <td><span className={`type-pill ${incident.severity === "critical" ? "incident-critical" : ""}`}>{String(incident.severity || "major").toUpperCase()}</span></td>
-                  <td><b>{incident.title}</b><div className="muted-note">{incident.details}</div></td>
-                  <td>{incident.device_name || "Thiết bị đã xóa"}</td>
-                  <td className="date-cell">{formatDate(incident.started_at)}</td>
-                  <td><span className={`incident-state ${String(incident.state).toLowerCase()}`}>{incident.state}</span></td>
-                  <td><div className="row-actions">
-                    {incident.state === "OPEN" && <button className="secondary-button" onClick={() => updateIncident(incident, "ACKNOWLEDGED")}>Tiếp nhận</button>}
-                    {["OPEN", "ACKNOWLEDGED"].includes(incident.state) && <button className="secondary-button" onClick={() => updateIncident(incident, "CLOSED")}>Đóng</button>}
-                  </div></td>
-                </tr>)}
-              </tbody></table></div> : <Empty icon={CheckCircle2} title="Chưa có incident" detail="Khi worker xác nhận mất kết nối, sự cố sẽ xuất hiện ở đây." />}
+              <div className="topology-canvas topology-large">
+                {siteDevices.length === 0 ? <EmptyState icon={Network} title="Không có thiết bị" text="Thêm router, switch và AP để bắt đầu." /> : <>
+                  <div className="topo-node topo-router">
+                    <div className="topo-device-icon"><Router size={22} /></div>
+                    <div className="topo-device-info"><strong>{siteDevices.find(d => d.type === "Router")?.name || "Router chưa khai báo"}</strong><small>{siteDevices.find(d => d.type === "Router")?.ip || "Chưa có IP"}</small></div>
+                    <Status status={siteDevices.find(d => d.type === "Router")?.status || "Unknown"} />
+                  </div>
+                  <div className="topo-connector"><span /></div>
+                  <div className="topo-node topo-core"><div className="topo-device-icon purple"><Network size={21} /></div><div className="topo-device-info"><strong>LAN / Switching layer</strong><small>Chưa có dữ liệu LLDP/CDP hoặc ARP discovery</small></div><span className="link-label">UNVERIFIED</span></div>
+                  <div className="topo-branches topology-branches-large">
+                    {siteDevices.filter(d => d.type !== "Router").map(d => { const Icon = iconFor(d.type); return <div className="topo-branch" key={d.id}><div className="branch-line" /><div className="topo-leaf"><Icon size={20} /><strong>{d.name}</strong><small>{d.ip}</small><Status status={d.status} /><span className="leaf-vendor">{d.vendor}</span></div></div>; })}
+                  </div>
+                </>}
+              </div>
+              <div className="topology-note"><CircleHelp size={16} /> Các đường nối trong bản giao diện này chỉ thể hiện phân tầng minh họa, không khẳng định thiết bị đang kết nối trực tiếp với nhau. Muốn tự khám phá topology cần tích hợp dữ liệu RouterOS, SNMP, LLDP/CDP và bảng MAC/ARP.</div>
             </section>
           )}
 
-          {pageDevices && (
-            <section className="panel table-panel">
-              <div className="panel-heading">
-                <div><h3><IconForType type={page === "Thiết bị" ? "device" : page} /> {page === "Cảnh báo" ? "Thiết bị đang cảnh báo" : `Danh sách ${page.toLowerCase()}`}</h3><p>Dữ liệu thiết bị hiện có trong backend</p></div>
-                <div className="heading-actions">
-                  <button className="secondary-button" onClick={exportCsv}><Download size={15} /> CSV</button>
-                  {page !== "Cảnh báo" && <button className="primary-button" onClick={openNewDevice}><Plus size={16} /> Thêm thiết bị</button>}
+          {isDevicePage && (
+            <section className="panel devices-panel">
+              <div className="panel-heading devices-heading">
+                <div><h2><Server size={18} /> Danh sách thiết bị</h2><p>{visibleDevices.length} kết quả · Site: {currentSite?.name}</p></div>
+                <div className="table-actions">
+                  <button className="btn btn-secondary" onClick={exportDevices}><Download size={15} /> Xuất CSV</button>
+                  <button className="btn btn-secondary" onClick={() => {setSearch("");setFilterStatus("Tất cả");setFilterType("Tất cả");}}><ListFilter size={15} /> Xóa lọc</button>
                 </div>
               </div>
-              <div className="filter-toolbar">
-                <div className="search-input"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Tìm tên, IP, hãng, model..." /><kbd> / </kbd></div>
-                <select value={siteFilter} onChange={e => setSiteFilter(e.target.value)}><option value="all">Tất cả site</option>{sites.map(s => <option value={s.id} key={s.id}>{s.name}</option>)}</select>
-                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">Mọi trạng thái</option><option value="online">Online</option><option value="offline">Offline</option><option value="unknown">UNKNOWN</option><option value="warning">Cảnh báo</option><option value="degraded">Suy giảm</option><option value="stale">Dữ liệu cũ</option></select>
-                <button className="icon-btn" title="Xóa bộ lọc" onClick={() => { setQuery(""); setSiteFilter("all"); setStatusFilter("all"); }}><Filter size={17} /></button>
+              <div className="filter-bar">
+                <div className="filter-search"><Search size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm theo tên, IP, hãng..." /></div>
+                <select value={filterType} onChange={e => setFilterType(e.target.value)}><option>Tất cả</option><option>Router</option><option>Switch</option><option>Wi-Fi</option><option>Server</option><option>Camera/NVR</option><option>Endpoint</option></select>
+                <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}><option>Tất cả</option><option>Online</option><option>Offline</option><option>Unknown</option></select>
+                <span className="result-count">{visibleDevices.length} thiết bị</span>
               </div>
-              {loading ? <Empty icon={LoaderCircle} title="Đang tải thiết bị" detail="Đang lấy dữ liệu từ API." /> :
-                <DeviceTable devices={filteredDevices} sites={sites} onEdit={openEditDevice} onDelete={deleteDevice} />}
-              <div className="table-footer">Hiển thị <b>{filteredDevices.length}</b> / {devices.length} thiết bị <span>·</span> Cập nhật tự động mỗi 15 giây</div>
+              <div className="table-scroll">
+                <table className="device-table">
+                  <thead><tr><th>THIẾT BỊ</th><th>IP ADDRESS</th><th>LOẠI</th><th>HÃNG</th><th>TRẠNG THÁI</th><th>PHƯƠNG THỨC</th><th></th></tr></thead>
+                  <tbody>
+                    {visibleDevices.map(d => {const Icon = iconFor(d.type);return <tr key={d.id}>
+                      <td><div className="device-cell"><span className="device-icon"><Icon size={18}/></span><div><strong>{d.name}</strong><small>ID-{d.id}</small></div></div></td>
+                      <td className="mono">{d.ip}</td><td><span className="type-tag">{d.type}</span></td><td>{d.vendor}</td><td><Status status={d.status}/></td><td><span className="method-tag">{d.method}</span></td>
+                      <td><button className="icon-btn row-more" onClick={() => showNotice(`${d.name}: chưa tích hợp thao tác quản trị backend.`)}><MoreHorizontal size={18}/></button></td>
+                    </tr>;})}
+                  </tbody>
+                </table>
+                {visibleDevices.length === 0 && <EmptyState icon={Search} title="Không tìm thấy thiết bị" text="Thử đổi từ khóa tìm kiếm hoặc bộ lọc." />}
+              </div>
+              <div className="table-footer"><span>Hiển thị {visibleDevices.length} / {siteDevices.length} thiết bị</span><span>Dữ liệu chưa đồng bộ với backend</span></div>
             </section>
           )}
 
-          {page === "Sơ đồ mạng" && (
-            <section className="panel topology-panel">
-              <div className="panel-heading">
-                <div><h3><Cable size={19} /> Sơ đồ kết nối mạng</h3><p>Thiết bị lấy từ API; liên kết vật lý chỉ hiện khi đã khai báo hoặc phát hiện.</p></div>
-                <button className="primary-button" onClick={() => { setTopologyForm({ ...topologyForm, site_id: sites[0]?.id || "", source_device_id: "", target_device_id: "" }); setShowTopologyForm(v => !v); }}><Plus size={15} /> Khai báo liên kết</button>
-              </div>
-              {showTopologyForm && <form className="topology-form" onSubmit={saveTopologyLink}>
-                <label>Site<select required value={topologyForm.site_id} onChange={e => setTopologyForm({ ...topologyForm, site_id: e.target.value, source_device_id: "", target_device_id: "" })}><option value="">Chọn site</option>{sites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
-                <label>Thiết bị nguồn<select required value={topologyForm.source_device_id} onChange={e => setTopologyForm({ ...topologyForm, source_device_id: e.target.value })}><option value="">Chọn thiết bị</option>{devices.filter(d => String(d.site_id) === String(topologyForm.site_id)).map(d => <option key={d.id} value={d.id}>{d.name} · {d.address}</option>)}</select></label>
-                <label>Cổng nguồn<input value={topologyForm.source_interface} onChange={e => setTopologyForm({ ...topologyForm, source_interface: e.target.value })} placeholder="ether1 / Gi1/0/1" /></label>
-                <label>Thiết bị đích<select required value={topologyForm.target_device_id} onChange={e => setTopologyForm({ ...topologyForm, target_device_id: e.target.value })}><option value="">Chọn thiết bị</option>{devices.filter(d => String(d.site_id) === String(topologyForm.site_id)).map(d => <option key={d.id} value={d.id}>{d.name} · {d.address}</option>)}</select></label>
-                <label>Cổng đích<input value={topologyForm.target_interface} onChange={e => setTopologyForm({ ...topologyForm, target_interface: e.target.value })} placeholder="ether2 / Gi1/0/24" /></label>
-                <label>Tốc độ<input value={topologyForm.speed} onChange={e => setTopologyForm({ ...topologyForm, speed: e.target.value })} placeholder="1 Gbps" /></label>
-                <label>Loại dữ liệu<select value={topologyForm.provenance} onChange={e => setTopologyForm({ ...topologyForm, provenance: e.target.value })}><option value="manual">Khai báo thủ công</option><option value="inferred">Suy luận (chưa xác minh)</option><option value="discovered">Đã phát hiện / xác minh</option></select></label>
-                <label>Loại kết nối<select value={topologyForm.link_type} onChange={e => setTopologyForm({ ...topologyForm, link_type: e.target.value })}><option value="ethernet">Ethernet</option><option value="fiber">Fiber</option><option value="wireless">Wireless</option><option value="wan">WAN</option><option value="other">Khác</option></select></label>
-                <div className="topology-form-actions">{error && <span className="inline-error"><AlertTriangle size={14} />{error}</span>}<button type="button" className="secondary-button" onClick={() => setShowTopologyForm(false)}>Hủy</button><button className="primary-button" disabled={saving}>{saving ? "Đang lưu..." : "Lưu liên kết"}</button></div>
-              </form>}
-              <div className="topology-notice"><CircleHelp size={17} /><span>Thiết bị được lấy từ backend. Chỉ các liên kết được khai báo hoặc phát hiện mới hiển thị bên dưới; hiện chưa tự suy luận kết nối vật lý từ ping.</span></div>
-              <div className="topology-site">
-                <div className="topology-site-heading"><Cable size={18} /><b>Liên kết đã khai báo</b><span>{topologyLinks.length} liên kết</span></div>
-                {topologyLinks.length ? <div className="table-scroll"><table className="device-table"><thead><tr><th>ĐẦU NGUỒN</th><th>CỔNG</th><th>LIÊN KẾT</th><th>CỔNG ĐÍCH</th><th>LOẠI DỮ LIỆU</th></tr></thead><tbody>{topologyLinks.map(link => {
-                  const source = devices.find(d => Number(d.id) === Number(link.source_device_id));
-                  const target = devices.find(d => Number(d.id) === Number(link.target_device_id));
-                  return <tr key={link.id}><td>{source?.name || `Device #${link.source_device_id}`}</td><td>{link.source_interface || "—"}</td><td>{link.link_type || "ethernet"} {link.speed ? `· ${link.speed}` : ""}</td><td>{link.target_interface || "—"} · {target?.name || `Device #${link.target_device_id}`}</td><td><span className="type-pill">{link.provenance === "manual" ? "Khai báo thủ công" : link.provenance === "discovered" ? "Đã phát hiện" : "Suy luận"}</span></td></tr>;
-                })}</tbody></table></div> : <Empty icon={Cable} title="Chưa có liên kết topology" detail="Chưa có kết nối vật lý nào được khai báo. Danh sách thiết bị bên dưới không được coi là sơ đồ dây thật." />}
-              </div>
-              {sites.map(site => {
-                const siteDevices = devices.filter(d => String(d.site_id) === String(site.id));
-                if (!siteDevices.length) return null;
-                return <div className="topology-site" key={site.id}>
-                  <div className="topology-site-heading"><Building2 size={18} /><b>{site.name}</b><span>{siteDevices.length} thiết bị</span></div>
-                  <div className="topology-device-grid">
-                    {siteDevices.map(d => (
-                      <div className="topology-device" key={d.id}>
-                        <div className={`topology-device-icon ${statusOf(d)}`}><IconForType type={typeOf(d)} size={22} /></div>
-                        <div><b>{d.name}</b><span>{d.address}</span><small>{d.vendor || "Chưa rõ hãng"} {d.model || ""}</small></div>
-                        <StatusBadge device={d} />
-                      </div>
-                    ))}
-                  </div>
+          {page === "Sites" && (
+            <section className="site-cards">
+              {sites.map(s => {
+                const count = devices.filter(d => String(d.siteId) === String(s.id)).length;
+                return <div className={`panel site-card ${selectedSite === String(s.id) ? "selected-site-card" : ""}`} key={s.id}>
+                  <div className="site-card-top"><div className="site-large-icon"><Network size={23}/></div><button className="icon-btn" onClick={() => {setSelectedSite(String(s.id));showNotice("Đã chọn site.");}}><MoreHorizontal size={18}/></button></div>
+                  <h3>{s.name}</h3><p><Globe size={14}/> {s.location}</p>
+                  <div className="site-card-stats"><div><strong>{count}</strong><span>Thiết bị khai báo</span></div><div><strong>{devices.filter(d => String(d.siteId) === String(s.id) && d.status === "Online").length}</strong><span>Online xác nhận</span></div></div>
+                  <button className="btn btn-secondary btn-full" onClick={() => {setSelectedSite(String(s.id));setPage("Tổng quan");}}>Mở site <ArrowRight size={15}/></button>
                 </div>;
               })}
-              {!devices.length && <Empty icon={Cable} title="Chưa có thiết bị để hiển thị" detail="Thêm thiết bị trước khi xây dựng sơ đồ mạng." />}
+              <button className="add-site-card" onClick={() => setModal("site")}><span><Plus size={22}/></span><strong>Thêm site mới</strong><small>Tạo địa điểm giám sát</small></button>
             </section>
           )}
 
-          {page === "Cài đặt" && (
-            <div className="settings-grid">
-              <section className="panel settings-card">
-                <div className="settings-icon"><Globe size={20} /></div>
-                <h3>Kết nối API</h3><p>Địa chỉ backend mà giao diện đang sử dụng.</p>
-                <label>API Base URL<input value={API} readOnly /></label>
-                <div className="settings-info"><span className="pulse-dot" /> Dữ liệu tự làm mới mỗi 15 giây khi đã đăng nhập.</div>
-                <button className="secondary-button" onClick={() => loadData(true)}><RefreshCw size={15} /> Kiểm tra kết nối</button>
-              </section>
-              <section className="panel settings-card">
-                <div className="settings-icon"><ShieldCheck size={20} /></div>
-                <h3>Tài khoản</h3><p>Thông tin phiên hiện tại.</p>
-                <div className="account-detail"><span>Email</span><b>{me?.email || "Chưa có thông tin"}</b></div>
-                <div className="account-detail"><span>Vai trò</span><b>{me?.role || "Theo backend"}</b></div>
-                <button className="secondary-button" onClick={logout}><LogOut size={15} /> Đăng xuất</button>
-              </section>
-              <section className="panel settings-card">
-                <div className="settings-icon"><Database size={20} /></div>
-                <h3>Dữ liệu giám sát</h3><p>Thống kê dữ liệu đang có, không phải dữ liệu giả lập.</p>
-                <div className="account-detail"><span>Tổng thiết bị</span><b>{devices.length}</b></div>
-                <div className="account-detail"><span>Sự kiện</span><b>{events.length}</b></div>
-                <div className="account-detail"><span>Site</span><b>{sites.length}</b></div>
-              </section>
-            </div>
+          {!isOverview && !isDevicePage && page !== "Topology" && page !== "Sites" && (
+            <section className="panel feature-placeholder">
+              <div className="feature-icon">{page === "Cảnh báo" || page === "Sự cố" ? <ShieldAlert size={28}/> : page === "Wi-Fi" ? <Wifi size={28}/> : page === "WAN & Internet" ? <Globe size={28}/> : page === "Công cụ Network" ? <Terminal size={28}/> : <Settings size={28}/>}</div>
+              <h2>{page}</h2>
+              <p>Giao diện khu vực {page.toLowerCase()} đã có vị trí trong hệ thống. Chức năng vận hành cần được nối với API backend và dữ liệu thiết bị thực tế.</p>
+              {page === "Công cụ Network" && <div className="tool-shortcuts"><button onClick={() => showNotice("Ping cần được thực thi từ backend/worker để kiểm tra thiết bị từ cloud.")}><Activity size={16}/> Ping</button><button onClick={() => showNotice("Traceroute cần worker thực thi tại mạng có thể truy cập thiết bị.")}><ArrowRight size={16}/> Traceroute</button><button onClick={() => showNotice("SNMP walk cần cấu hình SNMP credentials ở backend.")}><Network size={16}/> SNMP Walk</button><button onClick={() => showNotice("DNS lookup cần tích hợp API hoặc backend resolver.")}><Globe size={16}/> DNS Lookup</button></div>}
+              <div className="feature-warning"><AlertTriangle size={16}/> Chưa kết nối chức năng này với backend. Không thực hiện thay đổi cấu hình mạng thật.</div>
+            </section>
           )}
 
-          <footer className="app-footer"><span><Activity size={15} /> CHITHIEN NETWORK MONITOR</span><span>Giám sát hạ tầng · Dữ liệu từ backend</span></footer>
+          <footer className="app-footer"><span>NETOPS REALTIME <span className="footer-sep">/</span> Network Operations Platform</span><span><span className="footer-dot"/> UI ready <span className="footer-sep">·</span> Backend connection unverified</span></footer>
         </div>
       </main>
 
-      {modal === "device" && (
-        <Modal title={editingDevice ? "Cập nhật thiết bị" : "Thêm thiết bị mới"} onClose={() => setModal("")}>
-          <form className="form-body" onSubmit={saveDevice}>
-            <div className="form-grid">
-              <label>Tên thiết bị *<input required value={deviceForm.name} onChange={e => setDeviceForm({ ...deviceForm, name: e.target.value })} placeholder="Ví dụ: Router Core" /></label>
-              <label>Địa chỉ IP / hostname *<input required value={deviceForm.address} onChange={e => setDeviceForm({ ...deviceForm, address: e.target.value })} placeholder="192.168.1.1" /></label>
-              <label>Site *<select required value={deviceForm.site_id} onChange={e => setDeviceForm({ ...deviceForm, site_id: e.target.value })}><option value="">Chọn site</option>{sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
-              <label>Loại thiết bị *<select value={deviceForm.device_type} onChange={e => setDeviceForm({ ...deviceForm, device_type: e.target.value })}>{["Router", "Switch", "Wi-Fi", "Server", "Camera", "Firewall", "Other"].map(t => <option key={t}>{t}</option>)}</select></label>
-              <label>Hãng<input value={deviceForm.vendor} onChange={e => setDeviceForm({ ...deviceForm, vendor: e.target.value })} placeholder="MikroTik, Cisco, DrayTek..." /></label>
-              <label>Model<input value={deviceForm.model} onChange={e => setDeviceForm({ ...deviceForm, model: e.target.value })} placeholder="Model thiết bị" /></label>
-            </div>
-            <div className="form-section-title">Phương thức giám sát</div>
-            <label className="check-field"><input type="checkbox" checked={deviceForm.ping_enabled} onChange={e => setDeviceForm({ ...deviceForm, ping_enabled: e.target.checked })} /><span><b>Ping monitoring</b><small>Kiểm tra thiết bị có phản hồi mạng hay không.</small></span></label>
-            <label className="check-field"><input type="checkbox" checked={deviceForm.snmp_enabled} onChange={e => setDeviceForm({ ...deviceForm, snmp_enabled: e.target.checked })} /><span><b>SNMP monitoring</b><small>Đọc thông tin thiết bị nếu SNMP được bật và cho phép truy cập.</small></span></label>
-            {deviceForm.snmp_enabled && <>
-              <div className="form-grid">
-                <label>SNMP version<select value={deviceForm.snmp_version} onChange={e => setDeviceForm({ ...deviceForm, snmp_version: e.target.value })}><option value="2c">SNMP v2c</option></select></label>
-                <label>UDP port<input type="number" min="1" max="65535" value={deviceForm.snmp_port} onChange={e => setDeviceForm({ ...deviceForm, snmp_port: e.target.value })} /></label>
-                <label>Community<input value={deviceForm.snmp_community} onChange={e => setDeviceForm({ ...deviceForm, snmp_community: e.target.value })} /></label>
-              </div>
-              <p className="form-warning"><LockKeyhole size={15} /> Community cần được bảo vệ ở backend. Không dùng chuỗi mặc định trên thiết bị production.</p>
+      {modal && (
+        <div className="modal-backdrop" onMouseDown={e => {if (e.target === e.currentTarget) setModal("");}}>
+          <form className="modal" onSubmit={modal === "site" ? addSite : addDevice}>
+            <div className="modal-header"><div><h2>{modal === "site" ? "Thêm site mới" : "Thêm thiết bị"}</h2><p>{modal === "site" ? "Khai báo một địa điểm trong workspace." : `Thiết bị sẽ được thêm vào ${currentSite?.name}.`}</p></div><button type="button" className="icon-btn" onClick={() => setModal("")}><X size={19}/></button></div>
+            {modal === "site" ? <>
+              <label>Tên site <span>*</span><input required value={newSite.name} onChange={e => setNewSite({...newSite,name:e.target.value})} placeholder="VD: Chi nhánh Hà Nội"/></label>
+              <label>Địa chỉ / vị trí<input value={newSite.location} onChange={e => setNewSite({...newSite,location:e.target.value})} placeholder="VD: Quận 1, TP.HCM"/></label>
+            </> : <>
+              <label>Tên thiết bị <span>*</span><input required value={newDevice.name} onChange={e => setNewDevice({...newDevice,name:e.target.value})} placeholder="VD: Core-SW-01"/></label>
+              <label>Địa chỉ IP <span>*</span><input required value={newDevice.ip} onChange={e => setNewDevice({...newDevice,ip:e.target.value})} placeholder="VD: 192.168.1.1"/></label>
+              <label>Loại thiết bị<select value={newDevice.type} onChange={e => setNewDevice({...newDevice,type:e.target.value})}><option>Router</option><option>Switch</option><option>Wi-Fi</option><option>Server</option><option>Camera/NVR</option><option>Endpoint</option></select></label>
+              <label>Hãng / model<input value={newDevice.vendor} onChange={e => setNewDevice({...newDevice,vendor:e.target.value})} placeholder="VD: MikroTik CCR2004"/></label>
+              <div className="form-info"><CircleHelp size={15}/> Khai báo thiết bị chưa tự động kết nối, ping hoặc bật SNMP.</div>
             </>}
-            {error && <div className="inline-error"><AlertTriangle size={16} />{error}</div>}
-            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setModal("")}>Hủy</button><button className="primary-button" disabled={saving || !sites.length}>{saving ? "Đang lưu..." : <><Check size={16} /> Lưu thiết bị</>}</button></div>
+            <div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={() => setModal("")}>Hủy</button><button className="btn btn-primary" type="submit"><Plus size={15}/> {modal === "site" ? "Tạo site" : "Thêm thiết bị"}</button></div>
           </form>
-        </Modal>
+        </div>
       )}
-
-      {modal === "site" && (
-        <Modal title={editingSite ? "Cập nhật site" : "Thêm site mới"} onClose={() => setModal("")}>
-          <form className="form-body" onSubmit={saveSite}>
-            <label>Tên site *<input required value={siteForm.name} onChange={e => setSiteForm({ ...siteForm, name: e.target.value })} placeholder="Ví dụ: Văn phòng chính" /></label>
-            <label>Địa chỉ / vị trí<input value={siteForm.address} onChange={e => setSiteForm({ ...siteForm, address: e.target.value })} placeholder="Địa chỉ chi nhánh" /></label>
-            {error && <div className="inline-error"><AlertTriangle size={16} />{error}</div>}
-            <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setModal("")}>Hủy</button><button className="primary-button" disabled={saving}>{saving ? "Đang lưu..." : <><Check size={16} /> Lưu site</>}</button></div>
-          </form>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-function DeviceTable({ devices, sites, onEdit, onDelete }) {
-  if (!devices.length) return <Empty icon={Monitor} title="Không có thiết bị phù hợp" detail="Thử đổi bộ lọc hoặc thêm thiết bị mới." />;
-
-  return (
-    <div className="table-scroll">
-      <table className="device-table">
-        <thead><tr><th>THIẾT BỊ</th><th>SITE</th><th>ĐỊA CHỈ IP</th><th>LOẠI</th><th>TRẠNG THÁI</th><th>LATENCY</th><th>CẬP NHẬT</th><th /></tr></thead>
-        <tbody>
-          {devices.map(d => (
-            <tr key={d.id}>
-              <td><div className="device-cell"><div className={`device-cell-icon ${statusOf(d)}`}><IconForType type={typeOf(d)} size={18} /></div><div><b>{d.name}</b><small>{[d.vendor, d.model].filter(Boolean).join(" · ") || "Chưa có thông tin model"}</small></div></div></td>
-              <td>{sites.find(s => String(s.id) === String(d.site_id))?.name || `Site #${d.site_id ?? "—"}`}</td>
-              <td><code>{d.address || "—"}</code></td>
-              <td><span className="type-pill">{typeOf(d)}</span></td>
-              <td><StatusBadge device={d} /></td>
-              <td>{d.latency_ms == null ? "—" : `${Number(d.latency_ms).toFixed(1)} ms`}</td>
-              <td className="date-cell">{formatDate(d.last_checked)}</td>
-              <td><div className="row-actions"><button className="icon-btn" title="Sửa" onClick={() => onEdit(d)}><Pencil size={15} /></button><button className="icon-btn danger-icon" title="Xóa" onClick={() => onDelete(d)}><Trash2 size={15} /></button></div></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {notice && <div className="toast"><Check size={17}/><span>{notice}</span><button onClick={() => setNotice("")}><X size={15}/></button></div>}
     </div>
   );
 }
